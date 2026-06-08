@@ -11,48 +11,149 @@ export default function App() {
   const [sessionHistory, setSessionHistory] = useState<MockSession[]>([]);
   const [activePage, setActivePage] = useState<"onboarding" | "dashboard" | "interview" | "feedback">("onboarding");
   const [currentInterviewType, setCurrentInterviewType] = useState<InterviewType>("hr");
+  const [currentLevel, setCurrentLevel] = useState<number>(1);
+  const [currentInterviewField, setCurrentInterviewField] = useState<string>("Computer Science");
+  const [currentTotalQuestions, setCurrentTotalQuestions] = useState<number>(5);
   const [activeSession, setActiveSession] = useState<MockSession | null>(null);
 
-  // 1. Initialise local cache values
+  // 1. Initialise local cache values at start without bypassing the login screen
   useEffect(() => {
     try {
-      const cachedProfile = localStorage.getItem("quantview_profile");
       const cachedHistory = localStorage.getItem("quantview_history");
-
-      if (cachedProfile) {
-        const parsedProfile = JSON.parse(cachedProfile);
-        setProfile(parsedProfile);
-        setActivePage("dashboard");
-      }
-
       if (cachedHistory) {
         setSessionHistory(JSON.parse(cachedHistory));
       }
     } catch (e) {
-      console.warn("Failed to load QuantView local storage settings:", e);
+      console.warn("Failed to load QuantView history settings:", e);
     }
   }, []);
 
-  // 2. Synchronise profile completion
+  // 2. Synchronise profile completion / validation upon manual login event
   const handleOnboardingComplete = (newProfile: UserProfile) => {
+    try {
+      // Restore cached progress of this specific email if present to preserve level unlocks
+      const cachedProfileStr = localStorage.getItem("quantview_profile");
+      if (cachedProfileStr) {
+        const cachedProfile = JSON.parse(cachedProfileStr);
+        if (cachedProfile.email.toLowerCase() === newProfile.email.toLowerCase()) {
+          // Sync existing progress
+          const syncedProfile = {
+            ...newProfile,
+            currentLevel: cachedProfile.currentLevel || 1,
+            xpPoints: cachedProfile.xpPoints || 0,
+            completedLevels: cachedProfile.completedLevels || [],
+            badges: cachedProfile.badges || [],
+            streakCount: cachedProfile.streakCount || 1,
+            targetRole: cachedProfile.targetRole || newProfile.targetRole,
+            experienceLevel: cachedProfile.experienceLevel || newProfile.experienceLevel,
+            targetIndustry: cachedProfile.targetIndustry || newProfile.targetIndustry,
+          };
+          localStorage.setItem("quantview_profile", JSON.stringify(syncedProfile));
+          setProfile(syncedProfile);
+          setActivePage("dashboard");
+          return;
+        }
+      }
+    } catch (e) {
+      console.warn("Failed to sync cached user profile:", e);
+    }
+
     localStorage.setItem("quantview_profile", JSON.stringify(newProfile));
     setProfile(newProfile);
     setActivePage("dashboard");
   };
 
   // 3. Initiate Mock Assessment
-  const handleStartInterview = (type: InterviewType) => {
+  const handleStartInterview = (
+    type: InterviewType,
+    level: number = 1,
+    selectedField: string = "Computer Science",
+    totalQuestions: number = 5
+  ) => {
     setCurrentInterviewType(type);
+    setCurrentLevel(level);
+    setCurrentInterviewField(selectedField);
+    setCurrentTotalQuestions(totalQuestions);
     setActivePage("interview");
   };
 
-  // 4. Save Completed Evaluation Report
+  // 4. Save Completed Evaluation Report with dynamic gamification awards
   const handleCompleteSession = (completed: MockSession) => {
-    const updatedHistory = [completed, ...sessionHistory];
+    if (!profile) return;
+
+    const sessionWithLevel: MockSession = {
+      ...completed,
+      level: currentLevel,
+      selectedField: currentInterviewField,
+      totalQuestions: currentTotalQuestions
+    };
+
+    const overall = sessionWithLevel.evaluation?.overallScore || 70;
+    const voiceScore = sessionWithLevel.evaluation?.voiceAnalysisScore || 70;
+    const eyeScore = sessionWithLevel.evaluation?.eyeContactScore || 70;
+    const bodyScore = sessionWithLevel.evaluation?.bodyLanguageScore || 70;
+
+    const earnedXp = Math.round(overall * 15);
+    const newXP = (profile.xpPoints || 0) + earnedXp;
+
+    let updatedCompleted = [...(profile.completedLevels || [])];
+    const scoreThresholdMet = overall >= 60;
+
+    if (scoreThresholdMet && !updatedCompleted.includes(currentLevel)) {
+      updatedCompleted.push(currentLevel);
+    }
+
+    let nextCalculatedHighestLevel = profile.currentLevel || 1;
+    if (scoreThresholdMet) {
+      const maxCompleted = updatedCompleted.length > 0 ? Math.max(...updatedCompleted) : 0;
+      nextCalculatedHighestLevel = Math.min(5, Math.ceil(maxCompleted + 1));
+    }
+
+    let updatedBadges = [...(profile.badges || [])];
+    if (scoreThresholdMet) {
+      const levelBadgesMap: Record<number, string> = {
+        1: "Beginner Bronze",
+        2: "Basic Silver",
+        3: "Intermediate Gold",
+        4: "Advanced Platinum",
+        5: "Expert Master"
+      };
+      const badgeToEarn = levelBadgesMap[currentLevel];
+      if (badgeToEarn && !updatedBadges.includes(badgeToEarn)) {
+        updatedBadges.push(badgeToEarn);
+      }
+    }
+
+    if (overall >= 85 && !updatedBadges.includes("Elite High Scorer")) {
+      updatedBadges.push("Elite High Scorer");
+    }
+    if (voiceScore >= 82 && !updatedBadges.includes("Silver Voice")) {
+      updatedBadges.push("Silver Voice");
+    }
+    if (eyeScore >= 82 && !updatedBadges.includes("Flawless Focus")) {
+      updatedBadges.push("Flawless Focus");
+    }
+    if (bodyScore >= 82 && !updatedBadges.includes("Perfect Posture")) {
+      updatedBadges.push("Perfect Posture");
+    }
+
+    const updatedProfile: UserProfile = {
+      ...profile,
+      xpPoints: newXP,
+      completedLevels: updatedCompleted,
+      currentLevel: Math.max(1, nextCalculatedHighestLevel),
+      badges: updatedBadges,
+      streakCount: (profile.streakCount || 1) + 1
+    };
+
+    localStorage.setItem("quantview_profile", JSON.stringify(updatedProfile));
+    setProfile(updatedProfile);
+
+    const updatedHistory = [sessionWithLevel, ...sessionHistory];
     setSessionHistory(updatedHistory);
     localStorage.setItem("quantview_history", JSON.stringify(updatedHistory));
     
-    setActiveSession(completed);
+    setActiveSession(sessionWithLevel);
     setActivePage("feedback");
   };
 
@@ -124,6 +225,9 @@ export default function App() {
           <InterviewRoom
             userProfile={profile}
             interviewType={currentInterviewType}
+            interviewLevel={currentLevel}
+            selectedField={currentInterviewField}
+            totalQuestions={currentTotalQuestions}
             onCompleteSession={handleCompleteSession}
             onCancel={() => setActivePage("dashboard")}
           />

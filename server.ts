@@ -55,65 +55,203 @@ function cleanAndParseJSON(text: string) {
   }
 }
 
+// Conversational preface generator for offline simulator
+function getConversationalPreface(lastAnswer: string): string {
+  if (!lastAnswer || lastAnswer.trim() === "" || lastAnswer.includes("[Action complete")) {
+    return "Let's start our conversation with this question:";
+  }
+  
+  const text = lastAnswer.toLowerCase();
+  if (text.includes("api") || text.includes("rest") || text.includes("graphql") || text.includes("backend")) {
+    return "That's a very solid breakdown of back-end integration protocols. Following up on that, let me ask you:";
+  }
+  if (text.includes("conflict") || text.includes("disagree") || text.includes("team") || text.includes("client")) {
+    return "Resolving alignment and maintaining candidate empathy is definitely crucial. Building on that team response:";
+  }
+  if (text.includes("database") || text.includes("cache") || text.includes("sql") || text.includes("redis")) {
+    return "Excellent. Optimizing database reads and query layers is a major tech focal point. Moving into broader system design:";
+  }
+  if (text.includes("react") || text.includes("front") || text.includes("ui") || text.includes("css")) {
+    return "Indeed, maintaining fluid front-end render states heavily influences the product experience. Let's look at this next:";
+  }
+  if (text.includes("mistake") || text.includes("failed") || text.includes("error")) {
+    return "Absolutely. Reflecting on architectural setbacks is exactly how engineers grow. Continuing with that trend:";
+  }
+  if (text.includes("study") || text.includes("learn") || text.includes("skills") || text.includes("level")) {
+    return "Continuous upskilling keeps tech teams highly competitive. Expanding on your placement preparation:";
+  }
+
+  const defaults = [
+    "I appreciate you detailing that experience, it clarifies your general approach. Let let me ask you:",
+    "Very interesting response, thank you for sharing that context. Moving seamlessly into the next segment:",
+    "That makes total sense. It sounds like you've navigated that situation before. Let's zoom out to this question:",
+    "Got it. That highlights your execution style very nicely. Let's pivot slightly to the next element:"
+  ];
+  const idx = Math.abs(lastAnswer.length) % defaults.length;
+  return defaults[idx];
+}
+
+// 1. Core Field-specific Fallback Mock Questions Dictionary (All 21 professional fields)
+const fieldMockQuestions: Record<string, string[]> = {
+  "Computer Science": [
+    "Can you explain the difference between a process and a thread, and how concurrency is typically handled?",
+    "How would you optimize an O(N^2) algorithm to O(N log N) using standard data structures?",
+    "What are the core pillars of object-oriented programming, and how do they differ from functional programming?"
+  ],
+  "IT": [
+    "How do you troubleshoot a sudden high latency issue in a corporate network structure?",
+    "Explain the differences between virtualization and containerization in enterprise environments.",
+    "What is your approach to planning and enforcing automatic disaster backup and recovery drills?"
+  ],
+  "Software Engineering": [
+    "What are the benefits of test-driven development, and how do you ensure sufficient coverage?",
+    "Can you describe a situation where you had to refactor a legacy system without interrupting current production traffic?",
+    "How do you handle architectural design patterns like microservices versus a monolithic layout?"
+  ],
+  "Civil Engineering": [
+    "What factors do you consider when selecting materials for foundation designs in seismic active areas?",
+    "How do you conduct stress tests and structural integrity surveys for bridge construction projects?",
+    "What are the most common project management methodologies used in civil construction to avoid budget overrun?"
+  ],
+  "Mechanical Engineering": [
+    "Can you explain the principles of thermodynamics as applied to engine cooling system designs?",
+    "What are the key elements of finite element analysis (FEA) when analyzing mechanical components under tension?",
+    "How do you design for manufacturability (DFM) to ensure production parts remain highly cost-efficient?"
+  ],
+  "Electrical Engineering": [
+    "Explain the differences between synchronous and asynchronous motors, and their typical use cases under load.",
+    "How do you analyze transient analysis and power factor correction in high-voltage power grids?",
+    "What are your primary strategies to prevent electromagnetic interference in sensitive circuit board designs?"
+  ],
+  "Electronics Engineering": [
+    "Describe the process of designing a robust bandpass filter using operational amplifiers.",
+    "How do you approach real-time embedded system scheduling and interrupt service routine constraints?",
+    "What are the primary differences between FPGA-based hardware design and microcontroller firmware development?"
+  ],
+  "MBA": [
+    "How do you formulate a corporate-level strategy when entering an extremely price-sensitive emerging market?",
+    "Describe a framework you use to analyze the competitive forces within an industry before starting mergers?",
+    "How do you align cross-functional marketing, sales, and manufacturing departments around a unified strategic vision?"
+  ],
+  "Finance": [
+    "What are the key metrics you analyze to determine the weighted average cost of capital (WACC) of a company?",
+    "How do you construct a discounted cash flow (DCF) model and select the most objective terminal growth rate?",
+    "Can you explain the difference between systematic risk and unsystematic risk in asset portfolio management?"
+  ],
+  "Marketing": [
+    "How do you design a customer acquisition funnel and calculate customer lifetime value to customer acquisition cost ratio?",
+    "What strategies do you employ to turn a negative social media brand sentiment into a positive public relations campaign?",
+    "How do you utilize A/B testing and data analytics to optimize programmatic digital ad spend?"
+  ],
+  "HR": [
+    "How do you handle and resolve an internal conflict between a team leader and a key individual contributor?",
+    "What frameworks do you use to design competitive compensation packages while aligning with company tight budgets?",
+    "How do you construct a progressive talent acquisition and retention framework in a highly competitive market?"
+  ],
+  "Healthcare": [
+    "How do you balance patient-centric care protocols with hospital operational bottlenecks and resource constraints?",
+    "Describe your approach to staying compliant with HIPAA and patient confidentiality rules under digital shift models.",
+    "How do you manage emergency triaging decisions during high patient influx situations?"
+  ],
+  "Teaching": [
+    "How do you modify lesson plan delivery to accommodate students with diverse learning speeds and capabilities?",
+    "What is your approach to handling behavioral challenges in the classroom while maintaining a positive learning space?",
+    "Describe how you incorporate formative and summative assessments to measure student comprehension in real-time."
+  ],
+  "Government Jobs": [
+    "How do you maintain absolute standard compliance and transparency when managing public funds and allocations?",
+    "What is your approach to drafting public policies that balance diverse community expectations and strict laws?",
+    "How do you ensure equal accessibility of public services across rural and urban demographics?"
+  ],
+  "Banking": [
+    "How do you assess credit risk and collateral valuations for large commercial business loan applications?",
+    "What is your strategy for maintaining stringent compliance with AML (Anti-Money Laundering) and KYC rules?",
+    "How do you educate bank customers on digital banking fraud and security protections?"
+  ],
+  "Law": [
+    "What is your methodology for conducting extensive legal research and verifying precedent cases for contract writing?",
+    "How do you construct a persuasive legal brief when the direct statutory language is highly ambiguous?",
+    "Can you describe your approach to client confidentiality and navigating critical conflict-of-interest situations?"
+  ],
+  "Pharmacy": [
+    "Explain how you monitor and prevent severe drug-drug interactions when filling complex multi-drug prescriptions.",
+    "How do you ensure proper storage protocols and shelf-life tracking for temperature-sensitive sterile medications?",
+    "What strategies write clear patient counseling instructions for potential side effects and dosing intervals?"
+  ],
+  "Agriculture": [
+    "What are the most sustainable crop rotation and soil management practices to prevent nutrient erosion?",
+    "How do you evaluate irrigation efficiency under dry climate conditions to conserve local water systems?",
+    "What technologies do you use to track crop pest infestations and optimize pesticide applications?"
+  ],
+  "Architecture": [
+    "How do you balance spatial aesthetics with strict local building codes and fire safety regulations?",
+    "Describe your process for selecting sustainable, low-carbon materials to achieve LEED certifications in modern designs.",
+    "How do you incorporate feedback from structural engineers when compromising on a complex cantilever design?"
+  ],
+  "Hotel Management": [
+    "How do you handle a scenario where the guest capacity is fully booked and a VIP guest arrives with an unconfirmed booking?",
+    "What is your framework for managing staff rotas and operational costs during low-demand travel seasons?",
+    "How do you track, respond to, and resolve online negative customer reviews about hotel service quality?"
+  ],
+  "General Interview": [
+    "What are your professional core strengths, and where do you think you have room for development?",
+    "Describe a major challenge you faced in your previous role and how you worked through it step by step.",
+    "How do you manage your time effectively when juggling multiple close-deadline projects at once?"
+  ]
+};
+
 // 1. Next / Init Interview Question API
 app.post("/api/quantview/interview/next", async (req, res) => {
-  const { interviewType, userProfile, history = [] } = req.body;
+  const { interviewType, userProfile, level = 1, selectedField = "General Interview", history = [] } = req.body;
   const ai = getGeminiClient();
 
-  const mockQuestions = {
-    hr: [
-      "Tell me about a time when you had to manage conflicting priorities.",
-      "Why do you want to join our company in this specific role?",
-      "Describe a situation where you had a disagreement with a team member. How did you handle it?",
-    ],
-    technical: [
-      "Can you explain the major differences between REST APIs and GraphQL interfaces?",
-      "How would you approach designing a cache system for a highly scaled database?",
-      "Explain how memory management works in asynchronous Javascript applications.",
-    ],
-    behavioral: [
-      "Tell me about a time you made a significant mistake. What did you learn?",
-      "Give an example of a project you led that exceeded expectations. What was your role?",
-      "How do you handle working under tight constraints or unexpected scope shifts?",
-    ],
-    aptitude: [
-      "A train of 150m runs at 60 km per hour. How long will it take to cross a 250m long bridge?",
-      "In a project team, if A does work in 10 days and B does it in 15 days, how quickly can they do it together?",
-      "Explain the basic logical framework you would use to estimate the number of smartphones in use today in Tokyo.",
-    ],
-    placement: [
-      "What core skills make you the ideal pre-placed trainee for high-growth tech companies?",
-      "How do you stay updated with industry developments, and how have you applied those trends in your projects?",
-      "Where do you see yourself in five years, and how does this placement program fit into your trajectory?",
-    ],
-  };
-
+  // If we don't have AI, use fieldMockQuestions fallback
   if (!ai) {
-    // Elegant Offline simulation fallback
-    const length = history.length;
-    const list = mockQuestions[interviewType as keyof typeof mockQuestions] || mockQuestions.hr;
-    const itemIndex = length % list.length;
-    const displayMsg = list[itemIndex];
+    const list = fieldMockQuestions[selectedField] || fieldMockQuestions["General Interview"];
+    const itemIndex = history.length % list.length;
+    const baseQuestion = list[itemIndex];
+    
+    const lastInteraction = history[history.length - 1];
+    const lastAnswer = lastInteraction ? lastInteraction.answer : "";
+    const conversationPreface = getConversationalPreface(lastAnswer);
+
+    const speechText = `${conversationPreface} ${baseQuestion}`;
+    const displayQuestion = `[Level ${level}] ${baseQuestion}`;
+
     return res.json({
-      speechText: `QuantView Simulation: Here is your next question. ${displayMsg}`,
-      displayQuestion: displayMsg,
+      speechText: speechText,
+      displayQuestion: displayQuestion,
     });
   }
 
   try {
     const chatPrompt = `
-      Create the next logical interview question for a candidate preparing for a ${interviewType} interview.
-      Candidate profile: Target Role: "${userProfile.targetRole}", Experience Level: "${userProfile.experienceLevel}", Target Industry: "${userProfile.targetIndustry || "General"}".
+      Create the next logical interview question at difficulty Level ${level} out of 5 for a candidate preparing for a ${interviewType} interview.
+      Candidate profile: Target Role: "${userProfile.targetRole}", Experience Level: "${userProfile.experienceLevel}", Professional Field: "${selectedField}", Target Industry: "${userProfile.targetIndustry || "General"}".
       
-      The interview conversation history so far (if any):
+      CRITICAL FIELD TARGETING DIRECTIVE:
+      The candidate is specifically interviewing for the professional field: "${selectedField}".
+      Your generated question MUST perfectly align with "${selectedField}", integrating its unique technical frameworks, standards, problem scenarios, or professional situations.
+      
+      Difficulty description for Level ${level}:
+      Level 1 (Beginner): Very simple warm-up, core definitions, basic high-level explanations.
+      Level 2 (Basic): Core recruiter criteria, general knowledge of tools, foundational situational behavior.
+      Level 3 (Intermediate): Situational analysis, cross-functional problems, standard logic mappings, systems variables.
+      Level 4 (Advanced): Stress testing, deep architectural bottlenecks, optimization workflows, high stakes leadership conflict.
+      Level 5 (Expert): Complex design trade-offs, global enterprise infrastructure planning, tricky business logic conundrums.
+
+      The interview conversation history so far:
       ${JSON.stringify(history)}
       
-      Based on the history, formulate either a smart follow-up probing deeper into their previous answer, or ask a fresh questions matching their profile.
+      CRITICAL INSTRUCTION FOR COHERENT INTERACTIVE CONVERSATION:
+      You are the live recruiter Sarah. Look at the last candidate's answer in the history (if any). You MUST start your response by speaking naturally to acknowledge and validate their last answer (e.g. "That makes total sense," or "Analyzing database constraints is indeed critical as you said," or "I appreciate you explaining your team conflict situation"). 
+      Then, introduce the next question smoothly as a direct logical run-on. This makes the interview feel like an organic, dynamic conversation with a professional listener rather than a cold chatbot!
+      
       The question MUST be conversational, professional, and optimized for voice TTS delivery (do not write symbols, emojis, or markdown formatting).
       
       Return a JSON object conforming exactly to this schema:
       {
-        "speechText": "The question to be spoken by Text-To-Speech (fluent, concise, warm, 1-2 sentences)",
+        "speechText": "The feedback + follow-up question to be spoken by Text-To-Speech (fluent, concise, warm, 2-3 sentences)",
         "displayQuestion": "The text question to show on screen"
       }
     `;
@@ -140,7 +278,7 @@ app.post("/api/quantview/interview/next", async (req, res) => {
   } catch (error: any) {
     console.error("Gemini API Error in next endpoint:", error);
     // Graceful fallback
-    const list = mockQuestions[interviewType as keyof typeof mockQuestions] || mockQuestions.hr;
+    const list = fieldMockQuestions[selectedField] || fieldMockQuestions["General Interview"];
     const defaultMsg = list[history.length % list.length];
     res.json({
       speechText: `Moving on to the next section. ${defaultMsg}`,
@@ -151,7 +289,7 @@ app.post("/api/quantview/interview/next", async (req, res) => {
 
 // 2. Complete Session Evaluation API
 app.post("/api/quantview/interview/evaluate", async (req, res) => {
-  const { interviewType, userProfile, questions = [] } = req.body;
+  const { interviewType, userProfile, selectedField = "General Interview", questions = [] } = req.body;
   const ai = getGeminiClient();
 
   if (!ai) {
@@ -218,6 +356,7 @@ app.post("/api/quantview/interview/evaluate", async (req, res) => {
       You are the "QuantView AI Coach". Evaluate the complete Mock Interview Session and generate deep metrics.
       
       Interview Type: ${interviewType}
+      Selected Professional Field: ${selectedField}
       User Profile: ${JSON.stringify(userProfile)}
       
       Interview Dialogue & Telemetry Logs:

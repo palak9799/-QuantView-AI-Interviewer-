@@ -5,6 +5,11 @@ export interface UserProfile {
   experienceLevel: "Junior" | "Mid-level" | "Senior";
   targetIndustry: string;
   joinedDate: string;
+  currentLevel: number; // 1, 2, 3, 4, or 5
+  xpPoints: number;
+  completedLevels: number[]; // e.g. [1, 2] completed
+  badges: string[]; // e.g. ["First Milestone", "Deep Speaker"]
+  streakCount: number; // in days
 }
 
 export type InterviewType = "hr" | "technical" | "behavioral" | "aptitude" | "placement";
@@ -60,10 +65,13 @@ export interface MockSession {
   id: string;
   userId: string;
   interviewType: InterviewType;
+  level: number; // 1, 2, 3, 4, or 5
   date: string;
   questions: MockQuestion[];
   evaluation?: DetailedEvaluation;
   status: "idle" | "ongoing" | "completing" | "evaluated";
+  selectedField?: string;
+  totalQuestions?: number;
 }
 
 export interface RecommendationResource {

@@ -8,11 +8,22 @@ import {
 interface InterviewRoomProps {
   userProfile: UserProfile;
   interviewType: InterviewType;
+  interviewLevel: number;
+  selectedField: string;
+  totalQuestions: number;
   onCompleteSession: (completedSession: MockSession) => void;
   onCancel: () => void;
 }
 
-export default function InterviewRoom({ userProfile, interviewType, onCompleteSession, onCancel }: InterviewRoomProps) {
+export default function InterviewRoom({ 
+  userProfile, 
+  interviewType, 
+  interviewLevel, 
+  selectedField,
+  totalQuestions,
+  onCompleteSession, 
+  onCancel 
+}: InterviewRoomProps) {
   // Session details
   const [questionsList, setQuestionsList] = useState<MockQuestion[]>([]);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
@@ -28,6 +39,8 @@ export default function InterviewRoom({ userProfile, interviewType, onCompleteSe
   const [fillerWordsCount, setFillerWordsCount] = useState(0);
   const [detectedFillers, setDetectedFillers] = useState<string[]>([]);
   const [aiIsSpeaking, setAiIsSpeaking] = useState(false);
+  const [isCognitiveProcessing, setIsCognitiveProcessing] = useState(false);
+  const [processingStep, setProcessingStep] = useState(0);
 
   // Time metrics
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
@@ -360,6 +373,8 @@ export default function InterviewRoom({ userProfile, interviewType, onCompleteSe
         body: JSON.stringify({
           interviewType,
           userProfile,
+          level: interviewLevel,
+          selectedField,
           history: hist
         })
       });
@@ -398,45 +413,61 @@ export default function InterviewRoom({ userProfile, interviewType, onCompleteSe
   };
 
   const handleNextOrComplete = async () => {
-    // 1. Save current recorded answer text
-    const activeIndex = currentQuestionIndex;
-    const currentQ = questionsList[activeIndex];
-    
     // Stop recording first
     stopSpeechRecognition();
 
-    const finalizedQuestionVal: MockQuestion = {
-      ...currentQ,
-      answerText: currentTranscript || "Candidate provided silent postural and physical confirmations.",
-      fillerWordsCount: fillerWordsCount,
-      fillerWordsList: detectedFillers,
-      speechPaceWpm: speechPaceWpm || 135,
-      wordCount: currentTranscript.split(/\s+/).filter(Boolean).length,
-      userConfidenceScore: Math.max(50, 100 - (fillerWordsCount * 4) - (speechPaceWpm > 170 ? 15 : 0))
-    };
+    // Trigger visual hearing/processing states immediately
+    setIsCognitiveProcessing(true);
+    setProcessingStep(0);
 
-    // Update state store
-    const updatedQuestions = [...questionsList];
-    updatedQuestions[activeIndex] = finalizedQuestionVal;
-    setQuestionsList(updatedQuestions);
+    // Transition timers to mimic human parsing stages
+    setTimeout(() => {
+      setProcessingStep(1);
+    }, 800);
 
-    // Save history context
-    const nextHistory = [...conversationHistory, {
-      question: currentQ.questionText,
-      answer: initializedAnswerValue(currentTranscript)
-    }];
-    setConversationHistory(nextHistory);
+    setTimeout(() => {
+      setProcessingStep(2);
+    }, 1600);
 
-    // If we completed 3 full interactions, route to sensory evaluation
-    if (updatedQuestions.length >= 3) {
-      triggerFinalSessionEvaluation(updatedQuestions);
-    } else {
-      // Clear transcript state and hit backend
-      setCurrentTranscript("");
-      setFillerWordsCount(0);
-      setDetectedFillers([]);
-      fetchNextQuestion(nextHistory);
-    }
+    setTimeout(async () => {
+      setIsCognitiveProcessing(false);
+
+      const activeIndex = currentQuestionIndex;
+      const currentQ = questionsList[activeIndex];
+
+      const finalizedQuestionVal: MockQuestion = {
+        ...currentQ,
+        answerText: currentTranscript || "Candidate provided silent postural and physical confirmations.",
+        fillerWordsCount: fillerWordsCount,
+        fillerWordsList: detectedFillers,
+        speechPaceWpm: speechPaceWpm || 135,
+        wordCount: currentTranscript.split(/\s+/).filter(Boolean).length,
+        userConfidenceScore: Math.max(50, 100 - (fillerWordsCount * 4) - (speechPaceWpm > 170 ? 15 : 0))
+      };
+
+      // Update state store
+      const updatedQuestions = [...questionsList];
+      updatedQuestions[activeIndex] = finalizedQuestionVal;
+      setQuestionsList(updatedQuestions);
+
+      // Save history context
+      const nextHistory = [...conversationHistory, {
+        question: currentQ.questionText,
+        answer: initializedAnswerValue(currentTranscript)
+      }];
+      setConversationHistory(nextHistory);
+
+      // If we completed the selected number of questions, route to sensory evaluation
+      if (updatedQuestions.length >= totalQuestions) {
+        triggerFinalSessionEvaluation(updatedQuestions);
+      } else {
+        // Clear transcript state and hit backend
+        setCurrentTranscript("");
+        setFillerWordsCount(0);
+        setDetectedFillers([]);
+        fetchNextQuestion(nextHistory);
+      }
+    }, 2400);
   };
 
   const initializedAnswerValue = (text: string) => {
@@ -455,6 +486,7 @@ export default function InterviewRoom({ userProfile, interviewType, onCompleteSe
         body: JSON.stringify({
           interviewType,
           userProfile,
+          selectedField,
           questions: finalQuestions.map(q => ({
             questionText: q.questionText,
             answerText: q.answerText,
@@ -471,10 +503,13 @@ export default function InterviewRoom({ userProfile, interviewType, onCompleteSe
         id: `sess-${Math.random().toString(36).substr(2, 9)}`,
         userId: userProfile.email,
         interviewType,
+        level: interviewLevel,
         date: new Date().toISOString(),
         questions: finalQuestions,
         evaluation: evaluationResult,
-        status: "evaluated"
+        status: "evaluated",
+        selectedField,
+        totalQuestions
       };
 
       setIsEvaluating(false);
@@ -487,9 +522,12 @@ export default function InterviewRoom({ userProfile, interviewType, onCompleteSe
         id: `sess-${Math.random().toString(36).substr(2, 9)}`,
         userId: userProfile.email,
         interviewType,
+        level: interviewLevel,
         date: new Date().toISOString(),
         questions: finalQuestions,
         status: "evaluated",
+        selectedField,
+        totalQuestions,
         evaluation: {
           overallScore: 78,
           communicationScore: 80,
@@ -519,25 +557,27 @@ export default function InterviewRoom({ userProfile, interviewType, onCompleteSe
   const currentQ = questionsList[currentQuestionIndex];
 
   return (
-    <div className="min-h-screen bg-slate-950 font-sans p-4 sm:p-8 flex flex-col justify-between text-slate-100 relative overflow-hidden">
+    <div className="min-h-screen bg-slate-50 font-sans p-4 sm:p-8 flex flex-col justify-between text-slate-800 relative overflow-hidden">
       {/* Decorative Grid Backdrop */}
-      <div className="absolute inset-0 bg-[linear-gradient(to_right,#1e293b1a_1px,transparent_1px),linear-gradient(to_bottom,#1e293b1a_1px,transparent_1px)] bg-[size:32px_32px] pointer-events-none" />
+      <div className="absolute inset-0 bg-[linear-gradient(to_right,#e2e8f080_1px,transparent_1px),linear-gradient(to_bottom,#e2e8f080_1px,transparent_1px)] bg-[size:32px_32px] pointer-events-none" />
+      <div className="absolute -top-[20%] -left-[10%] w-[50%] h-[50%] bg-blue-50 rounded-full blur-[140px] pointer-events-none opacity-40" />
+      <div className="absolute bottom-[10%] right-[-10%] w-[40%] h-[40%] bg-sky-50 rounded-full blur-[120px] pointer-events-none opacity-40" />
       
       {/* Header */}
-      <header className="flex items-center justify-between border-b border-slate-800 pb-4 relative z-10 w-full max-w-7xl mx-auto">
+      <header className="flex items-center justify-between border-b border-slate-200 pb-4 relative z-10 w-full max-w-7xl mx-auto">
         <div className="flex items-center space-x-3">
-          <div className="px-2.5 py-1 rounded bg-blue-500/10 border border-blue-500/20 text-blue-400 text-xs font-mono font-bold">
-            ROOM ID: #0294
-          </div>
-          <span className="font-semibold text-sm text-slate-400">
-            Target Track: <span className="capitalize text-white font-bold">{interviewType === "hr" ? "HR Screening" : interviewType}</span>
+          <span className="text-xs font-bold bg-blue-100 text-blue-800 border border-blue-200 px-3 py-1 rounded-full uppercase tracking-wider">
+            Mock Practice Room
+          </span>
+          <span className="font-semibold text-sm text-slate-500">
+            Target Track: <span className="capitalize text-slate-900 font-bold">{interviewType === "hr" ? "HR Screening" : interviewType}</span>
           </span>
         </div>
         <button 
           onClick={onCancel}
-          className="text-xs text-slate-400 hover:text-white px-3 py-1.5 rounded border border-slate-800 hover:bg-slate-900 transition-colors cursor-pointer"
+          className="text-xs text-slate-600 hover:text-slate-950 px-3.5 py-2 rounded-xl bg-white border border-slate-200 hover:border-slate-350 shadow-sm transition-colors cursor-pointer"
         >
-          Abort Session
+          Abort Practice
         </button>
       </header>
 
@@ -548,7 +588,7 @@ export default function InterviewRoom({ userProfile, interviewType, onCompleteSe
         <div className="lg:col-span-7 flex flex-col justify-between gap-6">
           
           {/* Camera Visualizer Screen */}
-          <div className="relative aspect-video bg-slate-900 rounded-2xl border-2 border-slate-800 shadow-2xl overflow-hidden flex flex-col items-center justify-center group flex-grow">
+          <div className="relative aspect-video bg-slate-900 rounded-2xl border border-slate-200 shadow-lg overflow-hidden flex flex-col items-center justify-center group flex-grow">
             
             {cameraActive ? (
               <video 
@@ -558,64 +598,63 @@ export default function InterviewRoom({ userProfile, interviewType, onCompleteSe
                 className="absolute inset-0 w-full h-full object-cover rounded-2xl scale-x-[-1]"
               />
             ) : (
-              <div className="text-center p-6 space-y-3 max-w-sm absolute z-10 bg-slate-950/80 rounded-xl border border-slate-800 backdrop-blur-sm">
-                <CameraOff className="w-8 h-8 text-slate-600 mx-auto" />
-                <h4 className="text-xs font-semibold text-slate-400">QuantView Camera Stream Offline</h4>
-                <p className="text-[10px] text-slate-500 leading-relaxed">
+              <div className="text-center p-6 space-y-3 max-w-sm absolute z-10 bg-white/95 rounded-2xl border border-slate-200 shadow-sm backdrop-blur-sm">
+                <CameraOff className="w-8 h-8 text-slate-400 mx-auto" />
+                <h4 className="text-sm font-bold text-slate-800">Your Web Camera is Offline</h4>
+                <p className="text-xs text-slate-500 leading-relaxed">
                   {cameraError || "Simulator active: Camera feed represented procedurally for assessor metrics."}
                 </p>
               </div>
             )}
 
-            {/* High-Tech HUD Mesh Overlay */}
-            <div className="absolute inset-0 pointer-events-none z-20 flex flex-col justify-between p-4">
+            {/* Clean AI Tracking Overlays */}
+            <div className="absolute inset-0 pointer-events-none z-20 flex flex-col justify-between p-4 bg-transparent">
               
               {/* Target bracket outline */}
-              <div className="absolute left-6 top-6 w-8 h-4 border-l-2 border-t-2 border-cyan-400/50" />
-              <div className="absolute right-6 top-6 w-8 h-4 border-r-2 border-t-2 border-cyan-400/50" />
-              <div className="absolute left-6 bottom-6 w-8 h-4 border-l-2 border-b-2 border-cyan-400/50" />
-              <div className="absolute right-6 bottom-6 w-8 h-4 border-r-2 border-b-2 border-cyan-400/50" />
+              <div className="absolute left-6 top-6 w-8 h-4 border-l-2 border-t-2 border-blue-400/40" />
+              <div className="absolute right-6 top-6 w-8 h-4 border-r-2 border-t-2 border-blue-400/40" />
+              <div className="absolute left-6 bottom-6 w-8 h-4 border-l-2 border-b-2 border-blue-400/40" />
+              <div className="absolute right-6 bottom-6 w-8 h-4 border-r-2 border-b-2 border-blue-400/40" />
 
               {/* Laser Scan line overlay */}
               <div 
-                className="absolute left-2 right-2 h-0.5 bg-cyan-400/25 blur-sm transition-all" 
+                className="absolute left-2 right-2 h-0.5 bg-blue-500/15 blur-sm transition-all" 
                 style={{ top: `${scanOffset}%` }}
               />
 
               {/* Status Tags */}
               <div className="flex items-center justify-between">
-                <span className="text-[9px] font-mono font-bold bg-slate-950/80 text-cyan-400 border border-cyan-500/30 px-2 py-1 rounded backdrop-blur-sm flex items-center gap-1.5 flex-row">
-                  <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping" />
-                  <span>SENSORY CORE ALIVE</span>
+                <span className="text-[10px] font-bold bg-white/95 text-blue-600 border border-blue-200 px-3 py-1 rounded-full shadow-sm backdrop-blur-sm flex items-center gap-1.5 flex-row">
+                  <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
+                  <span>AI FEED ACTIVE</span>
                 </span>
                 
-                <span className="text-[9px] font-mono font-bold bg-slate-950/80 border px-2 py-1 rounded backdrop-blur-sm flex items-center gap-1 border-slate-800">
-                  <span className={`w-1.5 h-1.5 rounded-full ${gazeStable ? 'bg-emerald-400' : 'bg-red-500 animate-pulse'}`} />
-                  <span>EYE CONTACT: {gazeStable ? "LOCKED" : "SHIFTY"}</span>
+                <span className="text-[10px] font-bold bg-white/95 text-slate-700 border px-3 py-1 rounded-full shadow-sm backdrop-blur-sm flex items-center gap-1.5 border-slate-200">
+                  <span className={`w-2 h-2 rounded-full ${gazeStable ? 'bg-emerald-500' : 'bg-red-500 animate-pulse'}`} />
+                  <span>GAZE PROFILE: {gazeStable ? "STEADY" : "SHIFTY"}</span>
                 </span>
               </div>
 
               {/* Live center target face frame */}
-              <div className="w-24 h-24 border border-dashed border-cyan-400/20 rounded-full mx-auto relative flex items-center justify-center opacity-60">
-                <div className="absolute inset-0 border border-cyan-500/10 rounded-full animate-ping [animation-duration:3s]" />
-                <span className="text-[8px] font-mono text-cyan-400/40">Gaze Lock</span>
+              <div className="w-24 h-24 border border-dashed border-blue-400/20 rounded-full mx-auto relative flex items-center justify-center opacity-40">
+                <div className="absolute inset-0 border border-blue-500/10 rounded-full animate-ping [animation-duration:3.2s]" />
+                <span className="text-[9px] font-mono font-bold text-slate-300">Face Lock</span>
               </div>
 
-              {/* Bottom HUD sensors diagnostics */}
+              {/* Bottom indicators */}
               <div className="flex justify-between items-end">
                 <div className="space-y-1">
-                  <span className="block text-[8px] font-mono text-slate-500">POSTURAL STRENGTH INDEX</span>
-                  <div className="w-20 h-1 bg-slate-950 border border-slate-800 roundedoverflow-hidden">
+                  <span className="block text-[9px] font-bold text-slate-400 font-mono">POSTURAL STABILITY</span>
+                  <div className="w-20 h-1.5 bg-white/50 rounded-full overflow-hidden">
                     <div 
-                      className={`h-full rounded transition-all ${postureAligned ? 'bg-cyan-500' : 'bg-amber-500 animate-pulse'}`} 
+                      className={`h-full rounded-full transition-all ${postureAligned ? 'bg-blue-600' : 'bg-amber-500'}`} 
                       style={{ width: postureAligned ? "94%" : "40%" }}
                     />
                   </div>
                 </div>
 
-                <div className="text-right text-[8px] font-mono text-slate-400 flex flex-col justify-end">
-                  <span>CAMERA FPS: 30</span>
-                  <span>GAZE VECTOR: (X:0.24, Y:0.89)</span>
+                <div className="text-right text-[9px] font-bold text-slate-300 flex flex-col justify-end">
+                  <span>CAMERA STATUS: NORMAL</span>
                 </div>
               </div>
 
@@ -624,25 +663,25 @@ export default function InterviewRoom({ userProfile, interviewType, onCompleteSe
           </div>
 
           {/* Canvas Wave Visualizer & Microphone details */}
-          <div className="bg-slate-900 border border-slate-800/80 rounded-xl p-4 flex items-center justify-between gap-4">
-            <div className="flex items-center space-x-3 flex-shrink-0">
-              <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${isRecording ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-400/20 animate-pulse' : 'bg-slate-950 text-slate-600'}`}>
-                <Mic className="w-4 h-4" />
+          <div className="bg-white border border-slate-200 shadow-sm rounded-2xl p-4 flex items-center justify-between gap-4">
+            <div className="flex items-center space-x-3 shrink-0">
+              <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${isRecording ? 'bg-blue-50 text-blue-600 border border-blue-200 animate-pulse' : 'bg-slate-100 text-slate-400 border border-slate-200'}`}>
+                <Mic className="w-5 h-5" />
               </div>
               <div>
-                <h4 className="text-xs font-semibold text-white">Speech Voice Meter</h4>
-                <p className="text-[10px] text-slate-500 font-mono">
+                <h4 className="text-xs font-bold text-slate-900">Live Vocal Analysis</h4>
+                <p className="text-[10px] text-slate-500 font-medium">
                   {isRecording ? "Transcribing capture feed..." : "Speech standby"}
                 </p>
               </div>
             </div>
 
-            <div className="flex-grow h-10 border border-slate-800/80 bg-slate-950 rounded-lg overflow-hidden relative">
+            <div className="flex-grow h-10 border border-slate-100 bg-slate-50/50 rounded-xl overflow-hidden relative">
               {isRecording ? (
                 <canvas ref={canvasRef} width={400} height={40} className="w-full h-full absolute inset-0" />
               ) : (
                 <div className="absolute inset-0 flex items-center justify-center">
-                  <span className="text-[9px] font-mono text-slate-600">No input audio signal</span>
+                  <span className="text-[10px] text-slate-400 font-medium font-mono">Sensory soundwaves will draw here during speech</span>
                 </div>
               )}
             </div>
@@ -651,78 +690,145 @@ export default function InterviewRoom({ userProfile, interviewType, onCompleteSe
         </div>
 
         {/* Right Side: Coach Assistant Column (5 Cols) */}
-        <div id="quantview_assessor_column" className="lg:col-span-5 bg-slate-900 border border-slate-800 rounded-2xl p-6 flex flex-col justify-between gap-6 relative">
+        <div id="quantview_assessor_column" className="lg:col-span-5 bg-white border border-slate-200 shadow-md rounded-3xl p-6 sm:p-7 flex flex-col justify-between gap-6 relative">
           
           {/* Main Top Header Info */}
           <div>
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-4">
               <div className="flex items-center space-x-2">
-                <Sparkles className="w-4 h-4 text-blue-400" />
-                <h3 className="font-bold text-white tracking-widest text-xs uppercase font-mono">QuantView Assessor Panel</h3>
+                <Sparkles className="w-4 h-4 text-blue-600" />
+                <h3 className="font-extrabold text-slate-900 text-xs uppercase tracking-wider">QuantView Coach Assessor</h3>
               </div>
-              <div className="text-xs font-mono px-2 py-0.5 rounded bg-blue-500/10 text-blue-400 font-bold border border-blue-500/20">
+              <div className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
                 ACTIVE
               </div>
             </div>
 
-            {/* Simulated Coach States Loader */}
+            {/* Interactive Simulation Handshake States */}
             {isInitializing || isLoadingNext ? (
               <div className="py-20 text-center space-y-4">
-                <Loader2 className="w-8 h-8 animate-spin text-blue-400 mx-auto" />
+                <Loader2 className="w-8 h-8 animate-spin text-blue-600 mx-auto" />
                 <div>
-                  <h4 className="text-sm font-semibold text-white">{statusText}</h4>
-                  <p className="text-xs text-slate-500 mt-1">Configuring audio processors and synthetic logs...</p>
+                  <h4 className="text-sm font-extrabold text-slate-900">{statusText}</h4>
+                  <p className="text-xs text-slate-500 mt-1.5 leading-normal">Configuring smart listening systems...</p>
+                </div>
+              </div>
+            ) : isCognitiveProcessing ? (
+              <div className="py-12 text-center space-y-6 animate-in fade-in zoom-in-95 duration-200">
+                <div className="relative w-16 h-16 mx-auto">
+                  <div className="absolute inset-0 rounded-full border-4 border-slate-100 border-t-blue-600 animate-spin" />
+                  <div className="absolute inset-2 rounded-full bg-blue-50 flex items-center justify-center shadow-sm">
+                    <Mic className="w-5 h-5 text-blue-600 animate-pulse" />
+                  </div>
+                </div>
+                
+                <div className="space-y-4 max-w-sm mx-auto">
+                  <div className="space-y-1">
+                    <h4 className="text-sm font-black text-slate-950 tracking-tight">AI Interviewer is Listening & Analyzing</h4>
+                    <p className="text-[11px] text-slate-400 font-medium">Processing previous segment context...</p>
+                  </div>
+                  
+                  <div className="space-y-2 bg-slate-50 border border-slate-100 rounded-2xl p-4 shadow-inner">
+                    <div className="h-2 bg-slate-200 rounded-full overflow-hidden w-full">
+                      <div 
+                        className="h-full bg-blue-600 rounded-full transition-all duration-300" 
+                        style={{ width: `${processingStep === 0 ? "35%" : processingStep === 1 ? "70%" : "100%"}` }}
+                      />
+                    </div>
+                    <span className="text-[10px] font-bold font-mono text-blue-600 block uppercase tracking-wider animate-pulse pt-1">
+                      {processingStep === 0 && "Parsing voice frequency & pacing..."}
+                      {processingStep === 1 && "Evaluating STAR structured response logic..."}
+                      {processingStep === 2 && "Formulating coherent next track inquiries..."}
+                    </span>
+                  </div>
+
+                  {currentTranscript && (
+                    <div className="text-left bg-blue-50/20 border border-blue-100/40 rounded-xl p-3 text-xs text-slate-600 max-h-24 overflow-y-auto italic font-medium leading-relaxed">
+                      "{currentTranscript}"
+                    </div>
+                  )}
                 </div>
               </div>
             ) : isEvaluating ? (
               <div className="py-20 text-center space-y-5">
-                <Loader2 className="w-10 h-10 animate-spin text-cyan-400 mx-auto" strokeWidth={3} />
+                <Loader2 className="w-10 h-10 animate-spin text-blue-600 mx-auto" strokeWidth={3} />
                 <div className="space-y-2">
-                  <h4 className="text-base font-bold text-white animate-pulse">Analyzing Session Data...</h4>
-                  <p className="text-xs text-slate-400 max-w-xs mx-auto leading-relaxed">
-                    Analyzing speech transcripts, calculating average pace, aggregating verbal filler word habits, and compiling postural gaze vectors. This takes less than 5 seconds...
+                  <h4 className="text-sm font-black text-slate-900">Compiling Biometric Metrics...</h4>
+                  <p className="text-xs text-slate-500 max-w-xs mx-auto leading-relaxed">
+                    Analyzing vocal clarity, calculating pace levels, counting filler frequency, and computing your total streak score.
                   </p>
                 </div>
               </div>
             ) : (
               <div className="space-y-6 pt-6">
                 
-                {/* Active Coach Speech Status Banner */}
-                {aiIsSpeaking ? (
-                  <div className="border border-blue-500/20 bg-blue-500/5 p-4 rounded-xl flex items-center gap-3 animate-pulse">
-                    <Volume2 className="w-5 h-5 text-blue-400 shrink-0" />
-                    <div>
-                      <h4 className="text-xs font-semibold text-blue-400 font-mono">AI Coach Speaking Aloud</h4>
-                      <p className="text-[10px] text-slate-400 mt-0.5">Listen carefully to formulate your verbal argument.</p>
+                {/* AI Interpersonal Agent Card representing the Interviewer */}
+                <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-4 flex items-center gap-4 transition-all duration-300">
+                  <div className="relative shrink-0">
+                    {/* Pulsing Avatar Background circles */}
+                    <div className="relative w-14 h-14 rounded-full bg-blue-100 flex items-center justify-center text-slate-800 shadow-sm overflow-hidden">
+                      <span className="text-lg font-black text-blue-600 font-sans tracking-tight">AI</span>
+                      {aiIsSpeaking && (
+                        <div className="absolute inset-0 bg-blue-600/10 animate-pulse" />
+                      )}
+                      {isRecording && (
+                        <div className="absolute inset-0 bg-emerald-600/10 animate-pulse [animation-duration:1.2s]" />
+                      )}
                     </div>
+                    {/* Ring indicator around avatar */}
+                    {aiIsSpeaking && (
+                      <span className="absolute -inset-1 rounded-full border-2 border-blue-500 animate-ping opacity-30 [animation-duration:2.5s]" />
+                    )}
+                    {isRecording && (
+                      <span className="absolute -inset-1 rounded-full border-2 border-emerald-500 animate-ping opacity-30 [animation-duration:2s]" />
+                    )}
+                    {/* Small Status badge */}
+                    <span className={`absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full border-2 border-white ${
+                      aiIsSpeaking ? "bg-blue-600 animate-pulse" : isRecording ? "bg-emerald-600 active-light" : "bg-slate-300"
+                    }`} />
                   </div>
-                ) : (
-                  <div className="border border-emerald-500/20 bg-emerald-500/5 p-4 rounded-xl flex items-center gap-3">
-                    <ShieldCheck className="w-5 h-5 text-emerald-400 shrink-0" />
-                    <div>
-                      <h4 className="text-xs font-semibold text-emerald-400 font-mono">Sensory Diagnostic Online</h4>
-                      <p className="text-[10px] text-slate-400 mt-0.5">QuantView is recording. Speak clearly into the microphone device.</p>
+
+                  <div className="space-y-1 flex-grow">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-black text-slate-900 tracking-tight">Dr. Sarah (QuantView Assessor)</span>
+                      <span className={`text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${
+                        aiIsSpeaking 
+                          ? "bg-blue-50 text-blue-700 border-blue-200" 
+                          : isRecording 
+                            ? "bg-emerald-50 text-emerald-700 border-emerald-200" 
+                            : "bg-slate-100 text-slate-500 border-slate-200"
+                      }`}>
+                        {aiIsSpeaking ? "Speaking" : isRecording ? "Listening" : "Standing By"}
+                      </span>
                     </div>
+                    
+                    <p className="text-[11px] text-slate-500 leading-normal">
+                      {aiIsSpeaking 
+                        ? "Currently reading the interview question. Formulate your response in your mind."
+                        : isRecording 
+                          ? "I am actively listening, catching filler counts, pacing speed, and response patterns."
+                          : "Awaiting your trigger signal to analyze this conversation loop."}
+                    </p>
                   </div>
-                )}
+                </div>
 
                 {/* Main Display Question Box */}
-                <div className="bg-slate-950 p-5 rounded-2xl border border-slate-800 space-y-2 relative shadow-inner">
-                  <sup className="text-[9px] font-mono text-slate-500 uppercase tracking-wider block">Question {currentQuestionIndex + 1} of 3</sup>
-                  <p className="text-sm sm:text-base text-white font-medium leading-relaxed">
+                <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200/80 space-y-2 relative shadow-sm">
+                  <sup className="text-[9px] font-mono font-bold text-slate-400 uppercase tracking-wider block">Question {currentQuestionIndex + 1} of {totalQuestions}</sup>
+                  <p className="text-xs sm:text-sm text-slate-900 font-extrabold leading-relaxed">
                     {currentQ?.questionText}
                   </p>
                 </div>
 
                 {/* Real-time speech transcript feedback boxes */}
                 {isRecording && (
-                  <div className="space-y-3.5 pt-2">
+                  <div className="space-y-4 pt-2">
                     
                     {/* Live transcription preview */}
                     <div className="space-y-1">
-                      <span className="text-[9px] font-mono text-slate-500 uppercase block">Live Voice Transcript Preview</span>
-                      <div className="bg-slate-950/80 p-3 h-20 rounded-lg text-xs border border-slate-800 text-slate-300 overflow-y-auto italic pl-3 leading-relaxed">
-                        {currentTranscript || "Speak now to begin transcription..."}
+                      <span className="text-[10px] font-mono font-bold text-slate-450 uppercase block">Live Transcript preview</span>
+                      <div className="bg-slate-50/70 p-3.5 h-20 rounded-2xl text-xs border border-slate-200/60 text-slate-600 overflow-y-auto italic pl-3 leading-relaxed">
+                        {currentTranscript || "Speak clearly now. Listening triggers automated text..."}
                       </div>
                     </div>
 
@@ -730,27 +836,27 @@ export default function InterviewRoom({ userProfile, interviewType, onCompleteSe
                     <div className="grid grid-cols-2 gap-3">
                       
                       {/* Filler Counter */}
-                      <div className={`p-2.5 rounded-lg border flex flex-col justify-between ${fillerWordsCount > 2 ? 'bg-amber-500/5 border-amber-500/20 text-amber-400 animate-bounce' : 'bg-slate-950 border-slate-800'}`}>
-                        <div className="flex items-center justify-between text-[9px] font-mono text-slate-500">
-                          <span>FILLER STUTTERS</span>
-                          {fillerWordsCount > 2 && <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />}
+                      <div className={`p-3 rounded-2xl border flex flex-col justify-between ${fillerWordsCount > 2 ? 'bg-amber-50 border-amber-200 text-amber-800' : 'bg-slate-50 border-slate-200'}`}>
+                        <div className="flex items-center justify-between text-[9px] font-mono font-bold text-slate-400">
+                          <span>FILLER WORDS</span>
+                          {fillerWordsCount > 2 && <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />}
                         </div>
-                        <span className="text-lg font-bold font-mono text-white mt-1">{fillerWordsCount} match</span>
-                        <div className="text-[8px] text-slate-500 mt-0.5 overflow-hidden truncate">
-                          {detectedFillers.length > 0 ? detectedFillers.join(", ") : "Clear cadence"}
+                        <span className="text-base font-extrabold text-slate-900 mt-1">{fillerWordsCount} detected</span>
+                        <div className="text-[9px] text-slate-400 mt-0.5 overflow-hidden truncate">
+                          {detectedFillers.length > 0 ? detectedFillers.join(", ") : "Perfect cadence"}
                         </div>
                       </div>
 
                       {/* Speaking Pace */}
-                      <div className="p-2.5 rounded-lg border bg-slate-950 border-slate-800 flex flex-col justify-between">
-                        <span className="text-[9px] font-mono text-slate-500">EST. SPEAKING SPEED</span>
-                        <span className="text-lg font-bold font-mono text-white mt-1">{speechPaceWpm} WPM</span>
-                        <span className={`text-[8px] font-semibold ${
+                      <div className="p-3 rounded-2xl border bg-slate-50 border-slate-200 flex flex-col justify-between">
+                        <span className="text-[9px] font-mono font-bold text-slate-400">SPEAKING PACE</span>
+                        <span className="text-base font-extrabold text-slate-900 mt-1">{speechPaceWpm} WPM</span>
+                        <span className={`text-[9px] font-bold ${
                           speechPaceWpm >= 110 && speechPaceWpm <= 165
-                            ? "text-emerald-400"
-                            : "text-amber-500"
+                            ? "text-emerald-600"
+                            : "text-amber-600"
                         }`}>
-                          {speechPaceWpm >= 110 && speechPaceWpm <= 165 ? "Optimal Pace" : "Highly Rapid Pauses"}
+                          {speechPaceWpm >= 110 && speechPaceWpm <= 165 ? "Optimal Pace" : "Rapid Pauses"}
                         </span>
                       </div>
 
@@ -764,29 +870,29 @@ export default function InterviewRoom({ userProfile, interviewType, onCompleteSe
           </div>
 
           {/* Core Controls Footer Panel */}
-          {!isInitializing && !isLoadingNext && !isEvaluating && (
-            <div className="pt-4 border-t border-slate-800/80 flex items-center justify-between w-full mt-4">
+          {!isInitializing && !isLoadingNext && !isEvaluating && !isCognitiveProcessing && (
+            <div className="pt-4 border-t border-slate-100 flex items-center justify-between w-full mt-4">
               <div className="text-xs text-slate-500 font-mono flex items-center gap-2">
-                <Clock className="w-3.5 h-3.5 text-slate-600 animate-spin" />
+                <Clock className="w-3.5 h-3.5 text-slate-400 animate-spin" />
                 <span>Timer: {Math.floor(elapsedSeconds / 60)}:{(elapsedSeconds % 60).toString().padStart(2, "0")}s</span>
               </div>
 
               {isRecording ? (
                 <button
                   onClick={handleNextOrComplete}
-                  className="bg-blue-600 hover:bg-blue-500 text-slate-950 font-bold px-4 py-2 rounded-lg text-xs sm:text-sm flex items-center gap-1.5 transition-colors cursor-pointer"
+                  className="bg-blue-600 hover:bg-blue-700 text-white font-extrabold px-5 py-3 rounded-xl text-xs sm:text-sm flex items-center gap-1.5 transition-all shadow-md shadow-blue-500/10 cursor-pointer"
                 >
-                  <CheckCircle className="w-4 h-4 text-slate-950" />
-                  <span>Lock Answer & Continue</span>
+                  <CheckCircle className="w-4 h-4 text-white" />
+                  <span>Finish Speaking & Lock Answer</span>
                 </button>
               ) : (
                 <button
                   onClick={startSpeechRecognition}
                   disabled={aiIsSpeaking}
-                  className="bg-cyan-500 hover:bg-cyan-400 disabled:opacity-50 text-slate-950 font-bold px-4 py-2 rounded-lg text-xs sm:text-sm flex items-center gap-1.5 transition-colors cursor-pointer"
+                  className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-extrabold px-5 py-3 rounded-xl text-xs sm:text-sm flex items-center gap-1.5 transition-all shadow-md shadow-emerald-500/10 cursor-pointer"
                 >
-                  <Play className="w-4 h-4 text-slate-950 fill-slate-900" />
-                  <span>Interactive Answering Mic</span>
+                  <Play className="w-4 h-4 text-white fill-white" />
+                  <span>Start Microphone Response</span>
                 </button>
               )}
             </div>
@@ -797,12 +903,9 @@ export default function InterviewRoom({ userProfile, interviewType, onCompleteSe
       </main>
 
       {/* Assessor Sub Footer status lines */}
-      <footer className="border-t border-slate-800/85 pt-3 flex flex-row items-center justify-between text-[10px] text-slate-500 max-w-7xl mx-auto w-full relative z-10 font-mono">
-        <span>QUANTVIEW BIOMETRIC RECORDER ENGINE</span>
-        <span className="flex items-center gap-1.5">
-          <span className="w-2 h-2 rounded-full bg-blue-500 active-light" />
-          <span>CONNECTED SECURE PORT: 3000</span>
-        </span>
+      <footer className="border-t border-slate-200 pt-3 flex flex-row items-center justify-between text-[11px] text-slate-400 max-w-7xl mx-auto w-full relative z-10 font-mono">
+        <span>QUANTVIEW BIOMETRIC ASSESSMENT ENVIRONMENT</span>
+        <span>STUDENT MOCK TRAINING ROOM</span>
       </footer>
     </div>
   );
